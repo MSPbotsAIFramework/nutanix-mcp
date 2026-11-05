@@ -1,0 +1,140 @@
+[
+  {
+    "id": "TC1",
+    "ac": "AC1",
+    "text": "Given valid Nutanix credential headers, When an MCP client calls initialize then tools/list, Then the full nutanix_* tool set is returned with descriptions and typed parameters, without any call to Prism Central.",
+    "type": "auto",
+    "tests": [
+      "tests/test_tools.py::test_tools_list_returns_nutanix_toolset"
+    ],
+    "result": "pass",
+    "evidence": "uv run pytest -v tests/test_tools.py::test_tools_list_returns_nutanix_toolset -> PASSED. tools/list (live smoke, no mocked Prism Central call needed) returned exactly the 12 nutanix_* tools: nutanix_list_vms, nutanix_get_vm, nutanix_power_vm, nutanix_list_clusters, nutanix_get_cluster, nutanix_list_hosts, nutanix_get_host, nutanix_list_images, nutanix_list_subnets, nutanix_list_storage_containers, nutanix_get_task, nutanix_list_alerts; each has a non-empty description <=500 chars (first line <=100 chars) and a typed inputSchema."
+  },
+  {
+    "id": "TC2",
+    "ac": "AC2",
+    "text": "Given one or more of X-Nutanix-Host / X-Nutanix-Username / X-Nutanix-Password is missing, When any tool is called, Then the server returns 401 naming the missing header(s) and makes no request to Prism Central.",
+    "type": "auto",
+    "tests": [
+      "tests/test_middleware.py::test_missing_credential_headers_returns_401_and_names_them"
+    ],
+    "result": "pass",
+    "evidence": "uv run pytest -v tests/test_middleware.py::test_missing_credential_headers_returns_401_and_names_them -> PASSED. Also verified live: curl -X POST /mcp with no credential headers returned HTTP 401 with body {\"error\":\"missing_headers\",\"missing\":[\"X-Nutanix-Host\",\"X-Nutanix-Username\",\"X-Nutanix-Password\"]}; no mocked upstream route was hit (respx raises if an unmocked request is attempted)."
+  },
+  {
+    "id": "TC3",
+    "ac": "AC3",
+    "text": "Given valid credentials and a mocked Prism Central, When nutanix_list_vms is called with no arguments, Then it returns up to 50 mapped VM records (uuid, name, power_state, cluster) and has_more is set correctly.",
+    "type": "auto",
+    "tests": [
+      "tests/test_tools.py::test_list_vms_returns_mapped_fields_and_has_more"
+    ],
+    "result": "pass",
+    "evidence": "uv run pytest -v tests/test_tools.py::test_list_vms_returns_mapped_fields_and_has_more -> PASSED. respx-mocked POST /api/nutanix/v3/vms/list (50 entities, total_matches=75) -> nutanix_list_vms with no args returned count=50, has_more=true, items[0]={uuid,name,power_state,cluster_uuid,cluster_name}; a second case (10 of 10) asserts has_more=false."
+  },
+  {
+    "id": "TC4",
+    "ac": "AC3",
+    "text": "Given valid credentials for a real, reachable Prism Central, When nutanix_list_vms is called, Then it returns the cluster's actual VM data.",
+    "type": "manual",
+    "steps": [
+      "Obtain a real Prism Central host + a read-capable account",
+      "Call nutanix_list_vms with those credentials in the headers",
+      "Compare the returned items against the VM list shown in the Prism Central UI for the same cluster"
+    ],
+    "expect": "Returned VM names/uuids/power_state match what Prism Central shows for the same cluster",
+    "result": "blocked",
+    "notes": "needs a real vendor account / live Prism Central instance -- not available in this pipeline's environment; not executed, not counted as a failure"
+  },
+  {
+    "id": "TC5",
+    "ac": "AC4",
+    "text": "Given a valid VM UUID and a mocked Prism Central, When nutanix_power_vm is called with action=reboot, Then the tool returns the Nutanix task UUID from the triggered operation.",
+    "type": "auto",
+    "tests": [
+      "tests/test_tools.py::test_power_vm_returns_task_uuid"
+    ],
+    "result": "pass",
+    "evidence": "uv run pytest -v tests/test_tools.py::test_power_vm_returns_task_uuid -> PASSED. Mocked GET then PUT /api/nutanix/v3/vms/{uuid}; nutanix_power_vm(action=reboot) returned {\"task_uuid\":\"task-789\"} read from the mocked PUT response's status.execution_context.task_uuid."
+  },
+  {
+    "id": "TC6",
+    "ac": "AC4",
+    "text": "Given a VM UUID that does not exist on the cluster, When nutanix_power_vm is called, Then the tool returns a structured not_found error, not a 500 or an unhandled exception.",
+    "type": "auto",
+    "tests": [
+      "tests/test_tools.py::test_power_vm_unknown_uuid_returns_not_found_error"
+    ],
+    "result": "pass",
+    "evidence": "uv run pytest -v tests/test_tools.py::test_power_vm_unknown_uuid_returns_not_found_error -> PASSED. Mocked GET /api/nutanix/v3/vms/{uuid} -> 404 with Nutanix error body; tool returned {\"error\":{\"code\":\"not_found\",\"retryable\":false,...}}, no exception raised."
+  },
+  {
+    "id": "TC7",
+    "ac": "AC5",
+    "text": "Given a mocked Prism Central returns a 5xx or times out, When any tool is called, Then the tool returns {\"error\":{\"code\":\"upstream_error\",\"retryable\":true}}.",
+    "type": "auto",
+    "tests": [
+      "tests/test_tools.py::test_upstream_5xx_and_timeout_map_to_retryable_upstream_error"
+    ],
+    "result": "pass",
+    "evidence": "uv run pytest -v tests/test_tools.py::test_upstream_5xx_and_timeout_map_to_retryable_upstream_error -> PASSED. Mocked 503 on vms/list -> {\"error\":{\"code\":\"upstream_error\",\"retryable\":true}}; mocked httpx.ReadTimeout on vms/list -> same envelope shape after retry budget exhausted."
+  },
+  {
+    "id": "TC8",
+    "ac": "AC5",
+    "text": "Given a mocked Prism Central returns 401/403 (bad credentials), When any tool is called, Then the tool returns {\"error\":{\"code\":\"unauthorized\",\"retryable\":false}}.",
+    "type": "auto",
+    "tests": [
+      "tests/test_tools.py::test_upstream_401_maps_to_unauthorized_error"
+    ],
+    "result": "pass",
+    "evidence": "uv run pytest -v tests/test_tools.py::test_upstream_401_maps_to_unauthorized_error -> PASSED. Mocked 401 with Nutanix error body on vms/list -> {\"error\":{\"code\":\"unauthorized\",\"retryable\":false,\"message\":\"...bad creds...\"}}."
+  },
+  {
+    "id": "TC9",
+    "ac": "AC6",
+    "text": "Given two concurrent requests carry different X-Nutanix-Host/credential headers, When tools are invoked concurrently, Then neither request's credentials or client/results are observable from the other's context.",
+    "type": "auto",
+    "tests": [
+      "tests/test_middleware.py::test_concurrent_requests_do_not_share_credentials_or_client"
+    ],
+    "result": "pass",
+    "evidence": "uv run pytest -v tests/test_middleware.py::test_concurrent_requests_do_not_share_credentials_or_client -> PASSED. Two concurrent ASGI calls through CredentialMiddleware with different X-Nutanix-Host values, each sampling credentials.current().host before and after an await point; observed pairs were [(tenant-a,tenant-a),(tenant-b,tenant-b)] with no cross-contamination, and ContextVar is empty again afterward."
+  },
+  {
+    "id": "TC10",
+    "ac": "AC7",
+    "text": "Given a real on-prem Prism Central with a self-signed certificate, When a tool connects without X-Nutanix-Verify-Ssl set, Then the TLS failure is reported as a clear upstream_error; When X-Nutanix-Verify-Ssl=false is set, Then the connection succeeds.",
+    "type": "manual",
+    "steps": [
+      "Obtain a real on-prem Prism Central known to present a self-signed certificate",
+      "Call any read tool without the X-Nutanix-Verify-Ssl header",
+      "Call the same tool with X-Nutanix-Verify-Ssl: false"
+    ],
+    "expect": "First call returns a clear upstream_error (not a hang or an unhandled exception); second call succeeds and returns data",
+    "result": "blocked",
+    "notes": "needs a real vendor account / on-prem Prism Central with a self-signed certificate -- not available in this pipeline's environment; a mock server trivially has a trusted certificate so this cannot be meaningfully simulated"
+  },
+  {
+    "id": "TC11",
+    "ac": "AC8",
+    "text": "Given a list tool is called with limit=1000, Then the effective limit is capped at 200; given no limit is passed, Then the effective limit defaults to 50.",
+    "type": "auto",
+    "tests": [
+      "tests/test_tools.py::test_list_limit_defaults_to_50_and_caps_at_200"
+    ],
+    "result": "pass",
+    "evidence": "uv run pytest -v tests/test_tools.py::test_list_limit_defaults_to_50_and_caps_at_200 -> PASSED. Unit-level cap(1000)==200, cap(None)==50; integration-level: nutanix_list_vms(limit=1000) sent {\"length\":200,...} to the mocked vms/list endpoint, and nutanix_list_vms() with no limit sent {\"length\":50,...}."
+  },
+  {
+    "id": "TC12",
+    "ac": "AC9",
+    "text": "Given /health is called without any Nutanix credentials, Then it returns 200 {\"status\":\"ok\"} without attempting to contact Prism Central.",
+    "type": "auto",
+    "tests": [
+      "tests/test_middleware.py::test_health_endpoint_does_not_require_credentials"
+    ],
+    "result": "pass",
+    "evidence": "uv run pytest -v tests/test_middleware.py::test_health_endpoint_does_not_require_credentials -> PASSED. Also verified live: curl http://127.0.0.1:8099/health -> 200 {\"status\":\"ok\"} with zero Nutanix headers and no respx route mocked (would error if Prism Central were contacted)."
+  }
+]
